@@ -1,17 +1,17 @@
 import dgram from "dgram"
-import {TZRequest} from "./TZRequest.js";
-import {TZResponse} from "./TZResponse.js";
-import {TZConfig} from "../config/TZConfig.js";
-import {TZFlag} from "../config/TZFlag.js";
-import {decode, encode} from "@msgpack/msgpack";
-import {gunzip, gzip} from "zlib";
-import {promisify} from "util";
-import {AES256Factory} from "../crypto/AES256Factory.js";
+import { TZRequest } from "./TZRequest.js";
+import { TZResponse } from "./TZResponse.js";
+import { TZConfig } from "../config/TZConfig.js";
+import { TZFlag } from "../config/TZFlag.js";
+import { decode, encode } from "@msgpack/msgpack";
+import { gunzip, gzip } from "zlib";
+import { promisify } from "util";
+import { AES256Factory } from "../crypto/AES256Factory.js";
 
 const gzipAsync = promisify(gzip);
 const gunzipAsync = promisify(gunzip);
 
-export class TZBot {
+export class TZBot implements Disposable {
     private sock: dgram.Socket;
     private readonly apiKey: string | null;
     private readonly addr: string;
@@ -31,7 +31,15 @@ export class TZBot {
     }
 
     private async applyFlags(payload: TZRequest, ...flags: TZFlag[]): Promise<Buffer> {
-        const headerLen = flags.length + 3;
+        // Deduplicate flags first
+        const uniqueFlags = [...new Set(flags)];
+
+        // Validate Encryption Invariant
+        if (uniqueFlags.includes(TZFlag.ENCRYPT) && !this.aes) {
+            throw new Error("Cannot encrypt: No encryption key configured");
+        }
+
+        const headerLen = uniqueFlags.length + 3;
         const header = Buffer.alloc(headerLen);
 
         let payloadBytes: Buffer = Buffer.from(JSON.stringify(payload));
@@ -40,25 +48,18 @@ export class TZBot {
         header[1] = "z".charCodeAt(0);
         header[2] = headerLen;
 
-        const seen: Array<TZFlag> = []
-        for (let i = 0; i < flags.length; i++) {
-            // @ts-ignore
-            if(seen.includes(flags[i])) continue;
-            // @ts-ignore
-            seen.push(flags[i]);
-            if(flags[i] === TZFlag.ENCRYPT && this.aes == null) continue;
-            // @ts-ignore
-            header[3 + i] = flags[i].charCodeAt(0)
+        for (let i = 0; i < uniqueFlags.length; i++) {
+            header[3 + i] = uniqueFlags[i].charCodeAt(0)
         }
 
 
-        if(flags.includes(TZFlag.MSGPACK)) {
+        if (uniqueFlags.includes(TZFlag.MSGPACK)) {
             payloadBytes = Buffer.from(encode(payload))
         }
-        if(flags.includes(TZFlag.GUNZIP)) {
+        if (uniqueFlags.includes(TZFlag.GUNZIP)) {
             payloadBytes = await gzipAsync(payloadBytes)
         }
-        if(flags.includes(TZFlag.ENCRYPT) && this.aes) {
+        if (uniqueFlags.includes(TZFlag.ENCRYPT) && this.aes) {
             payloadBytes = this.aes.encrypt(payloadBytes);
         }
 
@@ -69,9 +70,9 @@ export class TZBot {
     }
 
     private async rebuildFromFlags(response: Buffer): Promise<TZResponse | null> {
-        if(response.length < 3) return null;
+        if (response.length < 3) return null;
         // @ts-ignore
-        if(String.fromCharCode(response[0]) !== "t" || String.fromCharCode(response[1]) !== "z" || response[2] < 3) return null;
+        if (String.fromCharCode(response[0]) !== "t" || String.fromCharCode(response[1]) !== "z" || response[2] < 3) return null;
 
         const header = response.slice(0, response[2]);
         let body: Buffer = response.slice(response[2] as number);
@@ -80,42 +81,75 @@ export class TZBot {
 
         const flags: TZFlag[] = [];
         // @ts-ignore
-        for(let i = 3; i < headerLen; i++) {
+        for (let i = 3; i < headerLen; i++) {
             // @ts-ignore
             const currentFlag = TZFlag.fromValue(header[i]);
-            if(currentFlag == null) return null;
+            if (currentFlag == null) return null;
             flags.push(currentFlag)
         }
 
-        if(flags.includes(TZFlag.ENCRYPT)) {
-            if(this.aes === null) return null;
+        if (flags.includes(TZFlag.ENCRYPT)) {
+            if (this.aes === null) return null;
             body = this.aes.decrypt(body);
         }
-        if(flags.includes(TZFlag.GUNZIP)) {
+        if (flags.includes(TZFlag.GUNZIP)) {
             body = await gunzipAsync(body)
         }
-        if(flags.includes(TZFlag.MSGPACK)) {
+        if (flags.includes(TZFlag.MSGPACK)) {
             body = Buffer.from(JSON.stringify(decode(body)));
         }
 
-        return JSON.parse(body.toString()) as TZResponse;
+        return TZResponse.fromJSON(JSON.parse(body.toString()));
     }
 
     public async send(msg: TZRequest, ...flags: TZFlag[]): Promise<TZResponse | null> {
         msg.setAPIKey(this.apiKey ? this.apiKey : "");
 
-        return new Promise(async (resolve, reject) => {
-            const onMessage = async (msg: Buffer)=> {
-                resolve(await this.rebuildFromFlags(msg))
-            }
-            const onError = (err: Error)=> {
-                reject(err)
-            }
+        const { promise, resolve, reject } = Promise.withResolvers<TZResponse | null>();
 
-            this.sock.once("message", onMessage);
-            this.sock.once("error", onError);
-            this.sock.send(await this.applyFlags(msg, ...flags), this.port, this.addr);
-        });
+        let onMessage: (msg: Buffer) => Promise<void>;
+        let onError: (err: Error) => void;
+
+        const cleanup = () => {
+            this.sock.off("message", onMessage);
+            this.sock.off("error", onError);
+        };
+
+        onMessage = async (msg: Buffer) => {
+            try {
+                resolve(await this.rebuildFromFlags(msg));
+            } catch (e) {
+                reject(e);
+            } finally {
+                cleanup();
+            }
+        };
+        onError = (err: Error) => {
+            reject(err);
+            cleanup();
+        };
+
+        // Hook up listeners
+        this.sock.once("message", onMessage);
+        this.sock.once("error", onError);
+
+        try {
+            const payload = await this.applyFlags(msg, ...flags);
+            this.sock.send(payload, this.port, this.addr, (err) => {
+                if (err) {
+                    onError(err);
+                }
+            });
+        } catch (e) {
+            reject(e as Error);
+            cleanup();
+        }
+
+        return promise;
+    }
+
+    [Symbol.dispose](): void {
+        this.close();
     }
 
     public close() {

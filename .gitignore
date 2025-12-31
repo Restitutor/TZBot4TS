@@ -13,3 +13,5 @@ yarn-error.log*
 conf.json
 .idea/
 .dist/
+
+.eslintcache

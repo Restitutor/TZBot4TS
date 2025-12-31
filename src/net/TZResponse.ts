@@ -8,9 +8,14 @@ export class TZResponse {
     }
 
     isSuccessful(): boolean {
-        return this.code.toString().startsWith("2") && this.code.toString().startsWith("3") && this.code.toString().length === 3;
+        const sCode = this.code.toString();
+        return (sCode.startsWith("2") || sCode.startsWith("3")) && sCode.length === 3;
     }
     getMessage(): string | number {
         return this.message;
+    }
+
+    static fromJSON(json: any): TZResponse {
+        return new TZResponse(json.code, json.message);
     }
 }

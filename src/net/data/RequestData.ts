@@ -1,13 +1,13 @@
-import {TZData} from "./TZData.js";
+import { TZData, RequestType } from "./TZData.js";
 
 export class PingData implements TZData {
-    public getRequestType(): string {
+    public getRequestType(): RequestType {
         return "PING";
     }
 }
 
 export class TimezoneFromIPData implements TZData {
-    getRequestType(): string {
+    getRequestType(): RequestType {
         return "TIMEZONE_FROM_IP";
     }
 
@@ -18,7 +18,7 @@ export class TimezoneFromIPData implements TZData {
 }
 
 export class TimezoneFromUserIDData implements TZData {
-    getRequestType(): string {
+    getRequestType(): RequestType {
         return "TIMEZONE_FROM_USERID";
     }
 
@@ -28,8 +28,8 @@ export class TimezoneFromUserIDData implements TZData {
     }
 }
 
-export class TimezoneFromUUIDData implements TZData{
-    public getRequestType(): string {
+export class TimezoneFromUUIDData implements TZData {
+    public getRequestType(): RequestType {
         return "TIMEZONE_FROM_UUID";
     }
 
@@ -41,7 +41,7 @@ export class TimezoneFromUUIDData implements TZData{
 }
 
 export class UserIDFromUUIDData implements TZData {
-    getRequestType(): string {
+    getRequestType(): RequestType {
         return "USER_ID_FROM_UUID";
     }
 
@@ -52,7 +52,7 @@ export class UserIDFromUUIDData implements TZData {
 }
 
 export class UUIDFromUserIDData implements TZData {
-    getRequestType(): string {
+    getRequestType(): RequestType {
         return "UUID_FROM_USER_ID";
     }
 
