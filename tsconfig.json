@@ -1,0 +1,39 @@
+{
+  "compilerOptions": {
+    // Module Settings
+    "module": "NodeNext",
+    "target": "ES2024",
+
+    // Library stuff
+    "declaration": true,
+    "sourceMap": true,
+    "outDir": "./dist",
+
+    // Strict Type Checking
+    "strict": true, // Enables all strict flags automatically
+
+    // Enhanced Type Checking (These are NOT included in strict, so keep them)
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noPropertyAccessFromIndexSignature": true,
+    "noImplicitAny": true,
+
+    // Path Settings
+    "rootDir": "./src",
+
+    // Module Interop
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+
+    // Additional Modern Features
+    "skipLibCheck": true,
+    "allowUnreachableCode": false,
+    "resolveJsonModule": true,
+    "incremental": true,
+
+    // Experimental / Modern Syntax
+    "experimentalDecorators": true // Keep if using NestJS/TypeORM
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "test", "conf.json", ".idea", "pnpm-lock.yaml"]
+}
